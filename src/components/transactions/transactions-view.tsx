@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Plus, Receipt, Search, X } from "lucide-react";
 import { formatDayLabel, dayKeyOf, monthRange } from "@/domain/time";
-import type { FeedItem } from "@/server/services/feed";
+import { formatMoney } from "@/domain/money";
+import type { FeedItem, FeedTotal } from "@/server/services/feed";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useQuickAdd } from "@/components/quick-add/quick-add";
 import { TxRow } from "./tx-row";
@@ -26,6 +27,7 @@ const TYPES = ["INCOME", "EXPENSE"];
 
 export function TransactionsView({
   items,
+  totals,
   hasMore,
   limit,
   todayKey,
@@ -34,6 +36,7 @@ export function TransactionsView({
   filters,
 }: {
   items: FeedItem[];
+  totals: FeedTotal[];
   hasMore: boolean;
   limit: number;
   todayKey: string;
@@ -220,6 +223,17 @@ export function TransactionsView({
             )}
           </div>
         )}
+        <section className="card mt-4 space-y-3 p-5" aria-label="Umumiy summa">
+          <h2 className="font-display text-xl font-semibold">Umumiy summa</h2>
+          {totals.length === 0 && <p>Jami daromad: 0 · Jami xarajat: 0 · Farq: 0</p>}
+          {totals.map(({ currency, income, expense }) => (
+            <dl key={currency} className="grid gap-3 sm:grid-cols-3">
+              <div><dt>Jami daromad</dt><dd className="num font-semibold text-income">{formatMoney(income, currency)}</dd></div>
+              <div><dt>Jami xarajat</dt><dd className="num font-semibold text-expense">{formatMoney(expense, currency)}</dd></div>
+              <div><dt>Farq (daromad − xarajat)</dt><dd className="num font-semibold">{formatMoney(income - expense, currency)}</dd></div>
+            </dl>
+          ))}
+        </section>
       </div>
     </div>
   );

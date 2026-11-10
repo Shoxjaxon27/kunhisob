@@ -1,3 +1,4 @@
+import type { Prisma } from "../db";
 import type { Db } from "../db";
 import { dayRange } from "@/domain/time";
 import { isDayKey } from "@/domain/time";
@@ -37,7 +38,10 @@ export type FeedTransferItem = {
 
 export type FeedItem = FeedTxItem | FeedTransferItem;
 
+export type FeedTotal = { currency: CurrencyCode; income: bigint; expense: bigint };
+
 export type FeedFilters = {
+  includeTotals?: boolean;
   q?: string;
   type?: FeedType;
   accountId?: string;
@@ -57,7 +61,7 @@ export async function listFeed(
   db: Db,
   userId: string,
   filters: FeedFilters = {},
-): Promise<{ items: FeedItem[]; hasMore: boolean }> {
+): Promise<{ items: FeedItem[]; hasMore: boolean; totals: FeedTotal[] }> {
   const limit = Math.min(Math.max(filters.limit ?? FEED_DEFAULT_LIMIT, 1), FEED_MAX_LIMIT);
   const q = filters.q?.trim() ?? "";
 
@@ -75,27 +79,29 @@ export async function listFeed(
   const wantTransfers = !filters.type || filters.type === "TRANSFER";
   const skipTransfersForCategory = Boolean(filters.categoryId);
 
-  const [txRows, trRows] = await Promise.all([
+  const txWhere: Prisma.TransactionWhereInput = {
+    userId,
+    deletedAt: null,
+    ...(txType ? { type: txType } : {}),
+    ...(filters.accountId ? { accountId: filters.accountId } : {}),
+    ...(filters.categoryId ? { categoryId: filters.categoryId } : {}),
+    ...(occurredAt ? { occurredAt } : {}),
+    ...(q
+      ? {
+          OR: [
+            { note: { contains: q } },
+            { category: { is: { name: { contains: q } } } },
+            { account: { is: { name: { contains: q } } } },
+            { tags: { some: { name: { contains: q.replace(/^#/, "").toLowerCase() } } } },
+          ],
+        }
+      : {}),
+  };
+
+  const [txRows, trRows, sums] = await Promise.all([
     wantTx
       ? db.transaction.findMany({
-          where: {
-            userId,
-            deletedAt: null,
-            ...(txType ? { type: txType } : {}),
-            ...(filters.accountId ? { accountId: filters.accountId } : {}),
-            ...(filters.categoryId ? { categoryId: filters.categoryId } : {}),
-            ...(occurredAt ? { occurredAt } : {}),
-            ...(q
-              ? {
-                  OR: [
-                    { note: { contains: q } },
-                    { category: { is: { name: { contains: q } } } },
-                    { account: { is: { name: { contains: q } } } },
-                    { tags: { some: { name: { contains: q.replace(/^#/, "").toLowerCase() } } } },
-                  ],
-                }
-              : {}),
-          },
+          where: txWhere,
           orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
           take: limit + 1,
           include: { account: true, category: true, tags: true },
@@ -127,6 +133,14 @@ export async function listFeed(
           orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
           take: limit + 1,
           include: { fromAccount: true, toAccount: true },
+        })
+      : Promise.resolve([]),
+    filters.includeTotals && wantTx
+      ? db.transaction.groupBy({
+          by: ["currency", "type"],
+          where: { AND: [txWhere, { type: { in: ["INCOME", "EXPENSE"] } }] },
+          _sum: { amount: true },
+          orderBy: { currency: "asc" },
         })
       : Promise.resolve([]),
   ]);
@@ -171,5 +185,13 @@ export async function listFeed(
     return d !== 0 ? d : a.id < b.id ? 1 : -1;
   });
 
-  return { items: items.slice(0, limit), hasMore: items.length > limit };
+  const totals = new Map<CurrencyCode, FeedTotal>();
+  for (const row of sums) {
+    const currency = cur(row.currency);
+    const total = totals.get(currency) ?? { currency, income: 0n, expense: 0n };
+    if (row.type === "INCOME") total.income = row._sum.amount ?? 0n;
+    if (row.type === "EXPENSE") total.expense = row._sum.amount ?? 0n;
+    totals.set(currency, total);
+  }
+  return { items: items.slice(0, limit), hasMore: items.length > limit, totals: [...totals.values()] };
 }

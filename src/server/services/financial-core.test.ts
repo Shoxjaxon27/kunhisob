@@ -577,3 +577,21 @@ describe("tez kiritish konteksti", () => {
     expect(ctx.accounts).toHaveLength(3);
   });
 });
+
+it("davr jamini sahifa limitidan mustaqil va valyutalar bo‘yicha hisoblaydi", async () => {
+  const c = await setup();
+  await expense(c, "50000", { type: "INCOME", categoryId: c.salary });
+  await expense(c, "20000");
+  await expense(c, "5", { accountId: c.usd });
+  await expense(c, "1000", { date: "2026-10-23" });
+  const filters = { from: "2026-10-24", to: "2026-10-24", limit: 1, includeTotals: true };
+  const result = await listFeed(db, c.userId, filters);
+  expect(result.items).toHaveLength(1);
+  expect(result.hasMore).toBe(true);
+  expect(result.totals).toEqual([
+    { currency: "USD", income: 0n, expense: 500n },
+    { currency: "UZS", income: 5000000n, expense: 2000000n },
+  ]);
+  const selected = await listFeed(db, c.userId, { ...filters, accountId: c.cash, type: "EXPENSE" });
+  expect(selected.totals).toEqual([{ currency: "UZS", income: 0n, expense: 2000000n }]);
+});

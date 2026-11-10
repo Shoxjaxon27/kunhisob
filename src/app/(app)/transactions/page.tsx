@@ -33,7 +33,7 @@ export default async function TransactionsPage({ searchParams }: { searchParams:
   const categoryId = one(sp.categoryId) || undefined;
 
   const [feed, accounts, categories] = await Promise.all([
-    listFeed(db, user.id, { q, type, accountId, categoryId, from: from || undefined, to: to || undefined, limit }),
+    listFeed(db, user.id, { q, type, accountId, categoryId, from: from || undefined, to: to || undefined, limit, includeTotals: true }),
     listAccounts(db, user.id),
     listCategories(db, user.id, { includeArchived: true }),
   ]);
@@ -41,6 +41,7 @@ export default async function TransactionsPage({ searchParams }: { searchParams:
   return (
     <TransactionsView
       items={feed.items}
+      totals={feed.totals}
       hasMore={feed.hasMore}
       limit={limit}
       todayKey={dayKeyOf(now)}
