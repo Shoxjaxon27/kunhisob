@@ -1,0 +1,12 @@
+.git
+.next
+node_modules
+data
+.env
+.env.*
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+*.pem
+coverage

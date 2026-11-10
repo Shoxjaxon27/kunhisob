@@ -48,7 +48,7 @@ export async function setSessionCookie(token: string, expiresAt: Date): Promise<
     httpOnly: true,
     sameSite: "lax",
     // HTTPS orqali ishlatilganda COOKIE_SECURE="true" qo'ying.
-    secure: process.env.COOKIE_SECURE === "true",
+    secure: process.env.VERCEL === "1" || process.env.COOKIE_SECURE === "true",
     path: "/",
     expires: expiresAt,
   });

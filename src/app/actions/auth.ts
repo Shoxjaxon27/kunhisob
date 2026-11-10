@@ -27,10 +27,11 @@ async function userAgent(): Promise<string | null> {
   return (await headers()).get("user-agent");
 }
 
-export async function registerAction(input: unknown): Promise<ActionResult<AuthResult>> {
+export async function registerAction(input: unknown, setupCode?: string): Promise<ActionResult<AuthResult>> {
   return run(async () => {
     const db = getDb();
     const { userId } = await registerUser(db, input, {
+      setupCode,
       allowRegistration: process.env.ALLOW_REGISTRATION === "true",
     });
     const { token, expiresAt } = await createSession(db, userId, { userAgent: await userAgent() });

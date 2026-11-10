@@ -84,7 +84,8 @@ export function LoginForm() {
   );
 }
 
-export function RegisterForm() {
+export function RegisterForm({ needsSetupCode = false }: { needsSetupCode?: boolean }) {
+  const [setupCode, setSetupCode] = useState("");
   const router = useRouter();
   const [formError, setFormError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -98,7 +99,7 @@ export function RegisterForm() {
   const onSubmit = handleSubmit((values) => {
     setFormError(null);
     startTransition(async () => {
-      const res = await registerAction(values);
+      const res = await registerAction(values, needsSetupCode ? setupCode : undefined);
       if (!res.ok) {
         setFormError(res.error);
         for (const [k, msg] of Object.entries(res.fields ?? {})) {
@@ -122,6 +123,9 @@ export function RegisterForm() {
 
       <FormError message={formError} />
 
+      {needsSetupCode && <Field label="Administrator sozlash kodi" htmlFor="setup-code">
+        <input id="setup-code" className="field" type="password" autoComplete="off" value={setupCode} onChange={e => setSetupCode(e.target.value)} />
+      </Field>}
       <Field label="Ismingiz" htmlFor="name" error={errors.name?.message}>
         <input id="name" autoComplete="name" className="field" aria-invalid={Boolean(errors.name)} {...register("name")} />
       </Field>

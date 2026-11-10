@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { PrismaLibSql } from "@prisma/adapter-libsql";
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import { Prisma, PrismaClient } from "@/generated/prisma/client";
 
@@ -18,7 +19,13 @@ export function resolveSqlitePath(url: string): string {
   return path.isAbsolute(p) ? p : path.resolve(/*turbopackIgnore: true*/ process.cwd(), p);
 }
 
-export function createDb(url: string = process.env.DATABASE_URL ?? DEFAULT_URL): Db {
+export function createDb(url: string = process.env.TURSO_DATABASE_URL ?? process.env.DATABASE_URL ?? DEFAULT_URL): Db {
+  if (url.startsWith("libsql://") || url.startsWith("https://")) {
+    const authToken = process.env.TURSO_AUTH_TOKEN;
+    if (!authToken) throw new Error("TURSO_AUTH_TOKEN sozlanmagan");
+    return new PrismaClient({ adapter: new PrismaLibSql({ url, authToken }) });
+  }
+  if (process.env.VERCEL === "1") throw new Error("Vercel uchun TURSO_DATABASE_URL sozlanishi kerak");
   const file = resolveSqlitePath(url);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const adapter = new PrismaBetterSqlite3({ url: `file:${file}` });

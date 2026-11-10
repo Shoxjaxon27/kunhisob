@@ -24,21 +24,22 @@ export async function hashPassword(password: string): Promise<string> {
 export async function registerUser(
   db: Db,
   input: unknown,
-  opts: { allowRegistration: boolean },
+  opts: { allowRegistration: boolean; setupCode?: string },
 ): Promise<{ userId: string }> {
   const data = parseWith(registerSchema, input);
 
-  const count = await db.user.count();
-  if (count > 0 && !opts.allowRegistration) {
-    throw new AppError("unauthorized", "Ro‘yxatdan o‘tish yopilgan. Mavjud hisob bilan kiring.");
-  }
-  const existing = await db.user.findUnique({ where: { email: data.email } });
-  if (existing) {
-    throw new AppError("conflict", "Bu email allaqachon ro‘yxatdan o‘tgan", { email: "Bu email band" });
-  }
-
   const passwordHash = await hashPassword(data.password);
   const user = await db.$transaction(async (tx) => {
+    const count = await tx.user.count();
+    if (count === 0 && process.env.VERCEL === "1" &&
+        (!process.env.ADMIN_SETUP_CODE || opts.setupCode !== process.env.ADMIN_SETUP_CODE)) {
+      throw new AppError("unauthorized", "Administratorni yaratish uchun sozlash kodini kiriting");
+    }
+    if (count > 0 && !opts.allowRegistration) {
+      throw new AppError("unauthorized", "Ro‘yxatdan o‘tish yopilgan. Mavjud hisob bilan kiring.");
+    }
+    const existing = await tx.user.findUnique({ where: { email: data.email } });
+    if (existing) throw new AppError("conflict", "Bu email allaqachon ro‘yxatdan o‘tgan", { email: "Bu email band" });
     const u = await tx.user.create({
       data: { email: data.email, name: data.name, passwordHash, role: count === 0 ? "ADMIN" : "USER" },
     });

@@ -26,5 +26,5 @@ export default async function RegisterPage() {
       </div>
     );
   }
-  return <RegisterForm />;
+  return <RegisterForm needsSetupCode={!hasUsers && process.env.VERCEL === "1"} />;
 }
