@@ -1,0 +1,449 @@
+// FINOVA — ma'lumotlar modeli
+//
+// PUL QOIDASI: barcha summalar BigInt, "minor unit"da saqlanadi
+// (UZS va USD uchun 2 xonali: 1 so'm = 100 tiyin, 1 USD = 100 cent).
+// Floating-point hech qayerda ishlatilmaydi.
+//
+// BALANS QOIDASI: hisob balansi saqlanmaydi, har doim ma'lumotlardan hisoblanadi:
+//   opening + Σ(Transaction IN) − Σ(Transaction OUT) + Σ(Transfer.toAmount) − Σ(Transfer.fromAmount)
+// Shuning uchun tahrirlash/o'chirish/undo balansni avtomatik to'g'ri qiladi.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// ───────────────────────── Enums ─────────────────────────
+
+enum AccountType {
+  CASH
+  CARD
+  SAVINGS
+  OTHER
+}
+
+enum CategoryKind {
+  INCOME
+  EXPENSE
+}
+
+enum TxType {
+  INCOME
+  EXPENSE
+  REFUND
+  ADJUSTMENT
+  // Sprint 3 (Qarzlar moduli) uchun ajratilgan turlar:
+  DEBT_LEND
+  DEBT_BORROW
+  DEBT_REPAY_IN
+  DEBT_REPAY_OUT
+}
+
+enum Flow {
+  IN
+  OUT
+}
+
+enum DebtDirection {
+  LENT
+  BORROWED
+}
+
+enum DebtStatus {
+  OPEN
+  PARTIAL
+  PAID
+  CANCELED
+}
+
+enum Frequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+  YEARLY
+}
+
+enum ThemePref {
+  LIGHT
+  DARK
+  SYSTEM
+}
+
+enum MotionPref {
+  FULL
+  REDUCED
+  OFF
+}
+
+// ───────────────────────── Foydalanuvchi ─────────────────────────
+
+model User {
+  personalPlans PersonalPlan[]
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String
+  passwordHash String
+  onboardedAt  DateTime?
+  // "USER" | "ADMIN". Eng birinchi ro'yxatdan o'tgan foydalanuvchi — ADMIN.
+  role         String    @default("USER")
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  sessions      Session[]
+  settings      Settings?
+  accounts      Account[]
+  categories    Category[]
+  tags          Tag[]
+  transactions  Transaction[]
+  transfers     Transfer[]
+  budgets       Budget[]
+  debts         Debt[]
+  goals         SavingsGoal[]
+  recurring     RecurringRule[]
+  dailyNotes    DailyNote[]
+  notifications Notification[]
+  auditLogs     AuditLog[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  userAgent String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model Settings {
+  payday String?
+  userId          String     @id
+  primaryCurrency String     @default("UZS")
+  locale          String     @default("uz")
+  timezone        String     @default("Asia/Tashkent")
+  theme           ThemePref  @default(SYSTEM)
+  motion          MotionPref @default(FULL)
+  notifyBudget    Boolean    @default(true)
+  notifyDue       Boolean    @default(true)
+  updatedAt       DateTime   @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ───────────────────────── Hisoblar va kategoriyalar ─────────────────────────
+
+model Account {
+  id             String      @id @default(cuid())
+  userId         String
+  name           String
+  type           AccountType @default(CASH)
+  currency       String
+  openingBalance BigInt      @default(0)
+  color          String      @default("#10b981")
+  icon           String      @default("wallet")
+  sortOrder      Int         @default(0)
+  archivedAt     DateTime?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions  Transaction[]
+  transfersOut  Transfer[]         @relation("TransferFrom")
+  transfersIn   Transfer[]         @relation("TransferTo")
+  recurring     RecurringRule[]
+  debtPayments  DebtPayment[]
+  contributions GoalContribution[]
+
+  @@index([userId, archivedAt])
+}
+
+model Category {
+  id         String       @id @default(cuid())
+  userId     String
+  name       String
+  kind       CategoryKind
+  color      String       @default("#64748b")
+  icon       String       @default("tag")
+  sortOrder  Int          @default(0)
+  archivedAt DateTime?
+  createdAt  DateTime     @default(now())
+
+  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+  budgets      Budget[]
+  recurring    RecurringRule[]
+
+  @@unique([userId, kind, name])
+  @@index([userId, archivedAt])
+}
+
+model Tag {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  createdAt DateTime @default(now())
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@unique([userId, name])
+}
+
+// ───────────────────────── Tranzaksiyalar ─────────────────────────
+
+model Transaction {
+  id          String    @id @default(cuid())
+  userId      String
+  accountId   String
+  categoryId  String?
+  type        TxType
+  flow        Flow
+  // Doim musbat; yo'nalishni `flow` belgilaydi.
+  amount      BigInt
+  // Hisob valyutasining nusxasi (hisob valyutasi bilan doim teng).
+  currency    String
+  occurredAt  DateTime
+  note        String    @default("")
+  refundOfId  String?
+  recurringId String?
+  // Soft-delete: undo va audit uchun.
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account       Account        @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  category      Category?      @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  tags          Tag[]
+  refundOf      Transaction?   @relation("Refund", fields: [refundOfId], references: [id], onDelete: SetNull)
+  refunds       Transaction[]  @relation("Refund")
+  recurringRule RecurringRule? @relation(fields: [recurringId], references: [id], onDelete: SetNull)
+  debtPayment   DebtPayment?
+  debtInitial   Debt?          @relation("DebtInitial")
+
+  @@index([userId, occurredAt])
+  @@index([userId, accountId, deletedAt])
+  @@index([userId, categoryId, deletedAt])
+  @@index([userId, type, deletedAt])
+}
+
+// Hisoblar orasidagi o'tkazma. Daromad ham, xarajat ham EMAS.
+// Turli valyutada bo'lsa: ikkala summa va kurs alohida saqlanadi (kurs o'ylab topilmaydi —
+// foydalanuvchi qabul qilingan summani kiritadi, kurs undan hisoblanadi).
+model Transfer {
+  id            String    @id @default(cuid())
+  userId        String
+  fromAccountId String
+  toAccountId   String
+  fromAmount    BigInt
+  toAmount      BigInt
+  fromCurrency  String
+  toCurrency    String
+  // toAmount/fromAmount (major birlikda), matn ko'rinishida. Bir valyutada null.
+  rate          String?
+  occurredAt    DateTime
+  note          String    @default("")
+  deletedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fromAccount Account @relation("TransferFrom", fields: [fromAccountId], references: [id], onDelete: Restrict)
+  toAccount   Account @relation("TransferTo", fields: [toAccountId], references: [id], onDelete: Restrict)
+
+  @@index([userId, occurredAt])
+  @@index([userId, fromAccountId, deletedAt])
+  @@index([userId, toAccountId, deletedAt])
+}
+
+// ───────────────────────── Sprint 3+ uchun modellar (hozircha UI yo'q) ─────────────────────────
+
+model Budget {
+  id         String   @id @default(cuid())
+  userId     String
+  // "YYYY-MM" (Asia/Tashkent bo'yicha oy)
+  month      String
+  // null = umumiy oylik byudjet
+  categoryId String?
+  currency   String
+  limit      BigInt
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category Category? @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@index([userId, month])
+}
+
+model Debt {
+  id            String        @id @default(cuid())
+  userId        String
+  direction     DebtDirection
+  counterparty  String
+  principal     BigInt
+  currency      String
+  startDate     DateTime
+  dueDate       DateTime?
+  note          String        @default("")
+  status        DebtStatus    @default(OPEN)
+  // Qarz berilganda/olinganda hisobga ta'sir qilgan dastlabki tranzaksiya (ixtiyoriy).
+  transactionId String?       @unique
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payments    DebtPayment[]
+  transaction Transaction?  @relation("DebtInitial", fields: [transactionId], references: [id], onDelete: SetNull)
+
+  @@index([userId, status])
+}
+
+model DebtPayment {
+  id            String   @id @default(cuid())
+  debtId        String
+  accountId     String
+  transactionId String?  @unique
+  amount        BigInt
+  paidAt        DateTime
+  note          String   @default("")
+  createdAt     DateTime @default(now())
+
+  debt        Debt         @relation(fields: [debtId], references: [id], onDelete: Cascade)
+  account     Account      @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  transaction Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+
+  @@index([debtId])
+}
+
+model SavingsGoal {
+  id          String    @id @default(cuid())
+  userId      String
+  name        String
+  target      BigInt
+  currency    String
+  deadline    DateTime?
+  monthlyPlan BigInt?
+  color       String    @default("#8b5cf6")
+  archivedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contributions GoalContribution[]
+
+  @@index([userId, archivedAt])
+}
+
+model GoalContribution {
+  id            String   @id @default(cuid())
+  goalId        String
+  accountId     String?
+  amount        BigInt
+  contributedAt DateTime
+  note          String   @default("")
+  createdAt     DateTime @default(now())
+
+  goal    SavingsGoal @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  account Account?    @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  @@index([goalId])
+}
+
+model RecurringRule {
+  id         String    @id @default(cuid())
+  userId     String
+  accountId  String
+  categoryId String?
+  type       TxType
+  amount     BigInt
+  currency   String
+  frequency  Frequency
+  interval   Int       @default(1)
+  startsOn   DateTime
+  endsOn     DateTime?
+  nextRunAt  DateTime
+  lastRunAt  DateTime?
+  note       String    @default("")
+  active     Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account      Account       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  category     Category?     @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  transactions Transaction[]
+
+  @@index([userId, active, nextRunAt])
+}
+
+model DailyNote {
+  id        String    @id @default(cuid())
+  userId    String
+  // "YYYY-MM-DD" (Asia/Tashkent)
+  date      String
+  content   String    @default("")
+  // Yopilgan kun ma'lumotlarni BLOKLAMAYDI; keyingi tuzatishlar AuditLog'ga yoziladi.
+  closedAt  DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  kind      String
+  title     String
+  body      String    @default("")
+  dedupeKey String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, readAt])
+}
+
+// O'zgarishlar tarixi (tahrirlash/o'chirish/tiklash).
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String
+  entity    String
+  entityId  String
+  action    String
+  // JSON matn (maxfiy ma'lumotsiz)
+  before    String?
+  after     String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, entity, entityId])
+  @@index([userId, createdAt])
+}
+
+model PersonalPlan {
+  id String @id @default(cuid())
+  userId String
+  title String
+  date String
+  estimate BigInt
+  currency String
+  completedAt DateTime?
+  transactionId String? @unique
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, date])
+}
