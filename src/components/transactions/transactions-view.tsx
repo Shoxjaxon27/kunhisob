@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Plus, Receipt, Search, X } from "lucide-react";
-import { formatDayLabel, dayKeyOf } from "@/domain/time";
+import { formatDayLabel, dayKeyOf, monthRange } from "@/domain/time";
 import type { FeedItem } from "@/server/services/feed";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useQuickAdd } from "@/components/quick-add/quick-add";
@@ -45,6 +45,7 @@ export function TransactionsView({
   const pathname = usePathname();
   const { open } = useQuickAdd();
   const [pending, startTransition] = useTransition();
+  const [unit, setUnit] = useState<"date" | "month">("date");
   const [q, setQ] = useState(filters.q);
 
   useEffect(() => setQ(filters.q), [filters.q]);
@@ -52,7 +53,7 @@ export function TransactionsView({
   const push = (patch: Partial<Filters> & { limit?: number }) => {
     const next = { ...filters, ...patch };
     // Preset tanlansa qo'lda sana tozalanadi va aksincha.
-    if (patch.range) { next.from = ""; next.to = ""; }
+    if (patch.range !== undefined) { next.from = ""; next.to = ""; }
     if (patch.from !== undefined || patch.to !== undefined) next.range = "";
     const p = new URLSearchParams();
     if (next.q) p.set("q", next.q);
@@ -95,7 +96,7 @@ export function TransactionsView({
       <header className="flex items-center justify-between gap-3">
         <h1 className="font-display text-2xl font-semibold tracking-tight sm:text-3xl">{t.nav.transactions}</h1>
         <button type="button" className="btn btn-primary" onClick={() => open()}>
-          <Plus size={18} aria-hidden="true" /> {t.nav.add}
+          <Plus size={18} aria-hidden="true" /> Tranzaksiya qo‘shish
         </button>
       </header>
 
@@ -131,15 +132,40 @@ export function TransactionsView({
           ))}
         </div>
 
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-          <label className="text-xs text-ink-3">
-            Boshlanish
-            <input type="date" className="field mt-1" value={filters.from} max={filters.to || undefined} onChange={(e) => push({ from: e.target.value })} />
-          </label>
-          <label className="text-xs text-ink-3">
-            Tugash
-            <input type="date" className="field mt-1" value={filters.to} min={filters.from || undefined} onChange={(e) => push({ to: e.target.value })} />
-          </label>
+        <form className="space-y-3" onSubmit={event => {
+          event.preventDefault();
+          const data = new FormData(event.currentTarget);
+          const first = String(data.get("from") || "");
+          const last = String(data.get("to") || "");
+          if (first && last && first > last) {
+            const input = event.currentTarget.elements.namedItem("to") as HTMLInputElement;
+            input.setCustomValidity("Tugash muddati boshlanishidan oldin bo‘lishi mumkin emas.");
+            input.reportValidity();
+            return;
+          }
+          push({
+            from: unit === "month" && first ? monthRange(first).firstDay : first,
+            to: unit === "month" && last ? monthRange(last).lastDay : last,
+          });
+        }} onInput={event => {
+          const input = event.currentTarget.elements.namedItem("to") as HTMLInputElement;
+          input.setCustomValidity("");
+        }}>
+          <div className="flex gap-2" role="group" aria-label="Oraliq turi">
+            <button type="button" className={cn("chip", unit === "date" && "chip-active")} aria-pressed={unit === "date"} onClick={() => setUnit("date")}>Sanadan sanagacha</button>
+            <button type="button" className={cn("chip", unit === "month" && "chip-active")} aria-pressed={unit === "month"} onClick={() => setUnit("month")}>Oydan oygacha</button>
+          </div>
+          <div key={`${unit}-${filters.from}-${filters.to}`} className="grid items-end gap-2 sm:grid-cols-[1fr_1fr_auto]">
+            <label>{unit === "month" ? "Boshlanish oyi" : "Boshlanish sanasi"}
+              <input name="from" type={unit} className="field mt-1" defaultValue={unit === "month" ? filters.from.slice(0, 7) : filters.from} />
+            </label>
+            <label>{unit === "month" ? "Tugash oyi" : "Tugash sanasi"}
+              <input name="to" type={unit} className="field mt-1" defaultValue={unit === "month" ? filters.to.slice(0, 7) : filters.to} />
+            </label>
+            <button className="btn btn-primary" type="submit">Tranzaksiyalarni ko‘rsatish</button>
+          </div>
+        </form>
+        <div className="grid gap-2 sm:grid-cols-2">
           <label className="text-xs text-ink-3">
             Hisob
             <select className="field mt-1" value={filters.accountId} onChange={(e) => push({ accountId: e.target.value })}>
@@ -173,7 +199,7 @@ export function TransactionsView({
                 icon={Receipt}
                 title="Hali yozuv yo‘q"
                 description="Birinchi xarajat yoki daromadni qo‘shing."
-                action={<button type="button" className="btn btn-primary" onClick={() => open()}><Plus size={18} aria-hidden="true" /> {t.nav.add}</button>}
+                action={<button type="button" className="btn btn-primary" onClick={() => open()}><Plus size={18} aria-hidden="true" /> Tranzaksiya qo‘shish</button>}
               />
             )}
           </section>
