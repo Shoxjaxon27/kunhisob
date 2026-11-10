@@ -10,7 +10,7 @@ import type { FeedKind } from "@/app/actions/data";
 const QuickAddForm = dynamic(() => import("./quick-add-form"), { loading: () => <p role="status">Forma ochilmoqda…</p> });
 export type QuickAddMode = "EXPENSE" | "INCOME" | "REFUND" | "TRANSFER" | "ADJUSTMENT";
 export type OpenOptions = {
-  mode?: QuickAddMode;
+  mode?: Extract<QuickAddMode, "EXPENSE" | "INCOME">;
   accountId?: string;
   edit?: { kind: FeedKind; id: string };
 };

@@ -19,9 +19,7 @@ import {
 import { toLocalInputs, addDays } from "@/domain/time";
 import type { QuickAddContext } from "@/server/services/quick-add";
 import {
-  createAdjustmentAction,
   createTransactionAction,
-  createTransferAction,
   deleteFeedItemAction,
   getEditDataAction,
   restoreFeedItemAction,
@@ -40,9 +38,6 @@ import type { QuickAddMode, OpenOptions } from "./quick-add";
 const MODES: { mode: QuickAddMode; label: string }[] = [
   { mode: "EXPENSE", label: t.txType.EXPENSE! },
   { mode: "INCOME", label: t.txType.INCOME! },
-  { mode: "TRANSFER", label: t.txType.TRANSFER! },
-  { mode: "REFUND", label: t.txType.REFUND! },
-  { mode: "ADJUSTMENT", label: t.txType.ADJUSTMENT! },
 ];
 
 const SAVED_LABEL: Record<QuickAddMode, string> = {
@@ -300,41 +295,20 @@ export default function QuickAddForm({ ctx, opts, onClose }: { ctx: QuickAddCont
       }
 
       // ───── Yangi yozuv
-      if (isTransfer) {
-        const res = await createTransferAction({
-          fromAccountId: accountId,
-          toAccountId,
-          fromAmount: amount,
-          toAmount: crossCurrency ? toAmount : undefined,
-          date: dateKey,
-          time,
-          note,
+      if (mode !== "INCOME" && mode !== "EXPENSE") return;
+      const res = await createTransactionAction(
+        { type: mode, accountId, categoryId, amount, date: dateKey, time, note, tags },
+        opts.force ?? false,
+      );
+      if (!res.ok) return fail(res);
+      if (res.data.status === "duplicate") {
+        setDuplicate({
+          time: toLocalInputs(res.data.existing.occurredAt).time,
+          note: res.data.existing.note,
         });
-        if (!res.ok) return fail(res);
-        undoable("transfer", res.data.id, SAVED_LABEL.TRANSFER);
-      } else if (isAdjust) {
-        const res = await createAdjustmentAction({ accountId, actualBalance: amount, date: dateKey, time, note });
-        if (!res.ok) return fail(res);
-        if (res.data.status === "no_change") {
-          toast({ message: "Balans allaqachon shunday — o‘zgartirish kerak emas", tone: "info" });
-          return;
-        }
-        undoable("tx", res.data.id, SAVED_LABEL.ADJUSTMENT);
-      } else {
-        const res = await createTransactionAction(
-          { type: mode, accountId, categoryId, amount, date: dateKey, time, note, tags },
-          opts.force ?? false,
-        );
-        if (!res.ok) return fail(res);
-        if (res.data.status === "duplicate") {
-          setDuplicate({
-            time: toLocalInputs(res.data.existing.occurredAt).time,
-            note: res.data.existing.note,
-          });
-          return;
-        }
-        undoable("tx", res.data.id, SAVED_LABEL[mode]);
+        return;
       }
+      undoable("tx", res.data.id, SAVED_LABEL[mode]);
 
       if (opts.another) reset();
       else onClose();
@@ -379,7 +353,7 @@ export default function QuickAddForm({ ctx, opts, onClose }: { ctx: QuickAddCont
       void submit({ another: !editing });
       return;
     }
-    if (e.altKey && /^[1-5]$/.test(e.key) && !editing) {
+    if (e.altKey && /^[1-2]$/.test(e.key) && !editing) {
       e.preventDefault();
       const m = MODES[Number(e.key) - 1];
       if (m) switchMode(m.mode);
@@ -412,7 +386,7 @@ export default function QuickAddForm({ ctx, opts, onClose }: { ctx: QuickAddCont
     >
       {/* Tur tanlash */}
       <div role="tablist" aria-label="Yozuv turi" className="scroll-x -mx-1 flex gap-1.5 rounded-2xl bg-sunken p-1.5">
-        {MODES.map(({ mode: m, label }, i) => {
+        {(editing && !MODES.some(tab => tab.mode === mode) ? [{ mode, label: t.txType[mode]! }] : MODES).map(({ mode: m, label }, i) => {
           const disabled = modeTabsDisabled || Boolean(editing && !["EXPENSE", "INCOME", "REFUND"].includes(m));
           return (
             <button

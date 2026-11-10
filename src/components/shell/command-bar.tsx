@@ -2,9 +2,9 @@
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeftRight, CornerDownLeft, Plus, Search, TrendingUp, Undo2, Scale, TrendingDown, type LucideIcon } from "lucide-react";
+import { CornerDownLeft, Plus, Search, TrendingUp, TrendingDown, type LucideIcon } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
-import { useQuickAdd, type QuickAddMode } from "@/components/quick-add/quick-add";
+import { useQuickAdd } from "@/components/quick-add/quick-add";
 import { NAV_ITEMS } from "./nav-items";
 import { cn } from "@/lib/cn";
 
@@ -28,7 +28,7 @@ function CommandList({ onClose }: { onClose: () => void }) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const commands = useMemo<Command[]>(() => {
-    const add = (mode: QuickAddMode, label: string, icon: LucideIcon, keywords: string): Command => ({
+    const add = (mode: "EXPENSE" | "INCOME", label: string, icon: LucideIcon, keywords: string): Command => ({
       id: `add-${mode}`,
       label,
       group: "Yangi yozuv",
@@ -42,9 +42,6 @@ function CommandList({ onClose }: { onClose: () => void }) {
     return [
       add("EXPENSE", "Yangi xarajat", TrendingDown, "xarajat chiqim sarf"),
       add("INCOME", "Yangi daromad", TrendingUp, "daromad kirim maosh"),
-      add("TRANSFER", "Hisoblar orasida o‘tkazma", ArrowLeftRight, "otkazma perevod"),
-      add("REFUND", "Qaytim (refund)", Undo2, "qaytim refund"),
-      add("ADJUSTMENT", "Balansni tuzatish", Scale, "tuzatish balans"),
       ...NAV_ITEMS.map<Command>((n) => ({
         id: `nav-${n.href}`,
         label: n.label,

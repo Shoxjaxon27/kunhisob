@@ -1,13 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { AppError } from "@/server/errors";
 import { getDb } from "@/server/db";
 import { run, type ActionResult } from "@/server/action-utils";
 import { requireUserId } from "@/server/auth/current";
 import { checkIntegrity, type IntegrityReport } from "@/server/services/integrity";
 import { completeOnboarding } from "@/server/services/onboarding";
 import {
-  createAdjustment,
   createTransaction,
   deleteTransaction,
   getTransactionForEdit,
@@ -17,7 +17,6 @@ import {
   type TransactionEditDto,
 } from "@/server/services/transactions";
 import {
-  createTransfer,
   deleteTransfer,
   getTransferForEdit,
   restoreTransfer,
@@ -56,6 +55,9 @@ export async function createTransactionAction(
 ): Promise<ActionResult<CreateTransactionResult>> {
   return run(async () => {
     const userId = await requireUserId();
+    if (typeof input !== "object" || !input || !("type" in input) || (input.type !== "INCOME" && input.type !== "EXPENSE")) {
+      throw new AppError("validation", "Daromad yoki xarajatni tanlang");
+    }
     const res = await createTransaction(getDb(), userId, input, { force });
     if (res.status === "created") refresh();
     return res;
@@ -68,26 +70,6 @@ export async function updateTransactionAction(id: string, input: unknown): Promi
     await updateTransaction(getDb(), userId, id, input);
     refresh();
     return undefined;
-  });
-}
-
-export async function createAdjustmentAction(
-  input: unknown,
-): Promise<ActionResult<{ status: "created"; id: string } | { status: "no_change" }>> {
-  return run(async () => {
-    const userId = await requireUserId();
-    const res = await createAdjustment(getDb(), userId, input);
-    if (res.status === "created") refresh();
-    return res;
-  });
-}
-
-export async function createTransferAction(input: unknown): Promise<ActionResult<{ id: string }>> {
-  return run(async () => {
-    const userId = await requireUserId();
-    const res = await createTransfer(getDb(), userId, input);
-    refresh();
-    return res;
   });
 }
 

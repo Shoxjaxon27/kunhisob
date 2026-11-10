@@ -22,7 +22,7 @@ const PRESETS: { id: string; label: string }[] = [
   { id: "last-month", label: "O‘tgan oy" },
   { id: "year", label: "Shu yil" },
 ];
-const TYPES = ["INCOME", "EXPENSE", "REFUND", "TRANSFER", "ADJUSTMENT"];
+const TYPES = ["INCOME", "EXPENSE"];
 
 export function TransactionsView({
   items,
