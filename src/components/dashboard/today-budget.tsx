@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { savePayday } from "@/app/actions/personal";
-import { addDays, formatDayShort, startOfDay, dayRange } from "@/domain/time";
+import { addDays, formatDayShort, startOfDay, dayRange, monthRange, formatMonthLabel } from "@/domain/time";
 import { formatMoney, type CurrencyCode } from "@/domain/money";
 import { getDb } from "@/server/db";
 import { dayKeyOf } from "@/domain/time";
 import { PurchaseCheck } from "./purchase-check";
-import { Banknote, CalendarDays, ShoppingBasket } from "lucide-react";
+import { Banknote, CalendarDays, ShoppingBasket, ArrowDownLeft, ArrowUpRight } from "lucide-react";
 import { ExpenseButton } from "./expense-button";
 
 export async function TodayBudget({ userId, today, balance, currency, payday }: {
@@ -13,8 +13,10 @@ export async function TodayBudget({ userId, today, balance, currency, payday }: 
 }) {
   const db = getDb();
   const { start, end } = dayRange(today);
+  const monthKey = today.slice(0, 7);
+  const month = monthRange(monthKey);
   const openPlans = { userId, completedAt: null };
-  const [savings, plannedSum, debtRows, todayPlans, next, spending] = await Promise.all([
+  const [savings, plannedSum, debtRows, todayPlans, next, spending, monthlyRows] = await Promise.all([
     db.goalContribution.aggregate({ where: { goal: { userId, currency, archivedAt: null } }, _sum: { amount: true } }),
     payday ? db.personalPlan.aggregate({ where: { ...openPlans, currency, date: { lt: payday } }, _sum: { estimate: true } }) : null,
     db.debt.findMany({ where: { userId, direction: "BORROWED", status: { not: "PAID" }, dueDate: { not: null } },
@@ -23,7 +25,14 @@ export async function TodayBudget({ userId, today, balance, currency, payday }: 
     db.personalPlan.findMany({ where: { ...openPlans, date: today }, select: { id: true, title: true } }),
     db.personalPlan.findFirst({ where: { ...openPlans, date: { gt: today } }, orderBy: { date: "asc" }, select: { date: true, title: true } }),
     db.transaction.aggregate({ where: { userId, currency, type: "EXPENSE", deletedAt: null, occurredAt: { gte: start, lt: end } }, _sum: { amount: true } }),
+    db.transaction.groupBy({
+      by: ["type"],
+      where: { userId, currency, deletedAt: null, type: { in: ["INCOME", "EXPENSE"] }, occurredAt: { gte: month.start, lt: month.end } },
+      _sum: { amount: true },
+    }),
   ]);
+  const monthlyAmount = (type: "INCOME" | "EXPENSE") => monthlyRows.find(row => row.type === type)?._sum.amount ?? 0n;
+  const monthFilter = `from=${month.firstDay}&to=${month.lastDay}`;
   const debts = debtRows.map(d => ({ ...d, dueKey: dayKeyOf(d.dueDate!),
     remaining: d.principal - d.payments.reduce((sum, payment) => sum + payment.amount, 0n) })).filter(d => d.remaining > 0n);
   const nextDebt = debts[0];
@@ -38,6 +47,20 @@ export async function TodayBudget({ userId, today, balance, currency, payday }: 
       <div><p className="text-sm text-ink-3">{formatDayShort(today)}</p><h1 className="font-display text-3xl font-semibold">Bugun</h1></div>
       <ExpenseButton />
     </header>
+    <section aria-labelledby="month-summary" className="space-y-3">
+      <h2 id="month-summary" className="font-display text-xl font-semibold">{formatMonthLabel(monthKey)}</h2>
+      <div className="grid gap-3 lg:grid-cols-3">
+        <Link href={`/transactions?type=INCOME&${monthFilter}`} className="card stat-tile">
+          <ArrowDownLeft aria-hidden="true" /><div><span>Shu oydagi daromad</span><strong>{money(monthlyAmount("INCOME"))}</strong></div>
+        </Link>
+        <Link href={`/transactions?type=EXPENSE&${monthFilter}`} className="card stat-tile">
+          <ArrowUpRight aria-hidden="true" /><div><span>Shu oydagi xarajat</span><strong>{money(monthlyAmount("EXPENSE"))}</strong></div>
+        </Link>
+        <Link href="/accounts" className="card stat-tile">
+          <Banknote aria-hidden="true" /><div><span>Hisobdagi qoldiq</span><strong>{money(balance)}</strong></div>
+        </Link>
+      </div>
+    </section>
     <section className="card budget-hero space-y-4 p-6 sm:p-8">
       <h2 className="font-semibold">Bir kunga qancha pulim bor?</h2>
       {days > 0 && payday ? <>
@@ -60,8 +83,7 @@ export async function TodayBudget({ userId, today, balance, currency, payday }: 
         </form>
       </details>
     </section>
-    <div className="grid gap-3 sm:grid-cols-2">
-      <Link href="/accounts" className="card stat-tile"><Banknote aria-hidden="true" /><div><span>Hisoblardagi jami pul</span><strong>{money(balance)}</strong></div></Link>
+    <div>
       <Link href={`/transactions?type=EXPENSE&from=${today}&to=${today}`} className="card stat-tile"><ShoppingBasket aria-hidden="true" /><div><span>Bugun sarfladim</span><strong>{money(spending._sum.amount ?? 0n)}</strong></div></Link>
     </div>
     {days > 0 && <PurchaseCheck free={free} days={days} currency={currency} />}
