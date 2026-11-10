@@ -77,3 +77,9 @@ Chek/fayl biriktirish va takroriy yozuvlar UI'si hali yo'q. Bildirishnomalar (by
 
 `start.bat` ni ikki marta bosing: kerak bo‘lsa paketlarni o‘rnatadi, `.env` ni yaratadi, bazani yangilaydi va brauzerda `http://localhost:3000` ni ochadi. Node.js 20.19+, 22.12+ yoki 24+ (LTS) o‘rnatilgan bo‘lishi kerak.
 
+
+## Vercel’da ishga tushirish
+
+Production muhiti uchun Turso bazasini ulang. Vercel sozlamalarida `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` va birinchi administratorni ro‘yxatdan o‘tkazish uchun maxfiy `ADMIN_SETUP_CODE` bo‘lishi kerak. Har bir joylashda build avval yetishmayotgan SQL migratsiyalarini bajaradi. Preview joylashlar uchun alohida sinov bazasi kerak.
+
+Birinchi administrator /register sahifasida o‘z emailini, parolini va sozlash kodini kiritadi. Brauzer sessiyasi HTTPS orqali uzatiladi. Mahalliy ishga tushirish avvalgidek SQLite faylidan foydalanadi.
